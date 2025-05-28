@@ -1,0 +1,120 @@
+#include <Wire.h>
+#include <MPU6050_light.h>
+
+// Định nghĩa chân động cơ
+#define IN1 5   // PWM Motor A (trái)
+#define IN2 6   // Motor A
+#define IN3 11   // PWM Motor B (phải)
+#define IN4 10  // Motor B
+
+// Khởi tạo MPU6050
+MPU6050 mpu(Wire);
+
+// Biến PID
+float Kp = 3.5;
+float Ki = 0.008;
+float Kd = 0.9;
+
+float error, previousError = 0;
+float integral = 0;
+float derivative;
+float pidOutput;
+
+float currentAngle;
+float initialAngle;
+
+// Tốc độ cơ bản và tốc độ giới hạn
+int baseSpeed = 40;
+int maxSpeed = 100;
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin();
+  mpu.begin();
+  Serial.println("Đang căn chỉnh MPU...");
+  mpu.calcOffsets(true, true); // Tự động offset gyro và acc
+
+  // Khởi tạo chân động cơ
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  delay(1000);
+
+  // Cập nhật lần đầu và lấy góc gốc
+  mpu.update();
+  initialAngle = mpu.getAngleZ();
+  Serial.print("Goc ban dau: ");
+  Serial.println(initialAngle);
+}
+
+// Hàm điều khiển động cơ
+void setMotorSpeed(int leftSpeed, int rightSpeed) {
+  // Giới hạn tốc độ
+  leftSpeed = constrain(leftSpeed, -100, 100);
+  rightSpeed = constrain(rightSpeed, -100, 100);
+
+  // Điều khiển Motor A (trái)
+  if (leftSpeed >= 0) {
+    analogWrite(IN1, leftSpeed);
+    digitalWrite(IN2, HIGH);
+  } else {
+    analogWrite(IN1, -leftSpeed);
+    digitalWrite(IN2, LOW);
+  }
+
+  // Điều khiển Motor B (phải)
+  if (rightSpeed >= 0) {
+    analogWrite(IN4, rightSpeed+10);
+    digitalWrite(IN3, LOW);
+  } else {
+    analogWrite(IN4, -rightSpeed+10);
+    digitalWrite(IN3, HIGH);
+  }
+}
+
+// Hàm điều khiển PID giữ thẳng
+void pidControl() {
+  mpu.update();
+  currentAngle = mpu.getAngleZ();
+  error = currentAngle - initialAngle;
+
+  // Nếu sai số nhỏ hơn 5° thì cho là hợp lệ
+  if (abs(error) <= 5) {
+    integral += error;
+  } else {
+    integral = 0; // Tránh tích lũy quá mức
+  }
+
+  derivative = error - previousError;
+
+  pidOutput = Kp * error + Ki * integral + Kd * derivative;
+
+  int leftSpeed = baseSpeed - pidOutput;
+  int rightSpeed = baseSpeed + pidOutput;
+
+  // Giới hạn tốc độ từng bánh
+  leftSpeed = constrain(leftSpeed, 0, maxSpeed);
+  rightSpeed = constrain(rightSpeed, 0, maxSpeed);
+
+  setMotorSpeed(leftSpeed, rightSpeed);
+
+  previousError = error;
+
+  // In thông số debug
+  Serial.print("Goc: ");
+  Serial.print(currentAngle);
+  Serial.print(" | Error: ");
+  Serial.print(error);
+  Serial.print(" | PID: ");
+  Serial.print(pidOutput);
+  Serial.print(" | L: ");
+  Serial.print(leftSpeed);
+  Serial.print(" | R: ");
+  Serial.println(rightSpeed);
+}
+
+void loop() {
+  pidControl();
+}
